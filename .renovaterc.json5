@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  // This repo's own presets at main: a repo config cannot extend them relatively
+  "extends": ["local>alexander-zimmermann/.github//.renovate/sidecarBase.json5"],
+  "packageRules": [
+    {
+      "matchManagers": ["pre-commit"],
+      "groupName": "pre-commit",
+    },
+  ],
+  "pre-commit": {
+    "enabled": true,
+  },
+}

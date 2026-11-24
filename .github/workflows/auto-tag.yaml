@@ -1,0 +1,60 @@
+name: Auto Tag
+
+# Consumers pin a tag, so a change to a shared file only reaches them once it is tagged
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/sidecar-*.yaml
+      - .renovate/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auto-tag
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate token
+        id: app-token
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
+        with:
+          app-id: ${{ secrets.RENOVATE_APP_ID }}
+          private-key: ${{ secrets.RENOVATE_PRIVATE_KEY }}
+
+      # GITHUB_TOKEN cannot push a tag onto a commit that changes a workflow file
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Tag the next version
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          shared=('.github/workflows/sidecar-*.yaml' .renovate) # git matches the glob, so a deleted file counts too
+          last=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || true)
+          if [ -z "$last" ]; then
+            next=v1.0.0
+          else
+            log=$(git log --format='%s%n%b' "$last"..HEAD -- "${shared[@]}")
+            if [ -z "$log" ]; then
+              echo "No shared file changed since $last"
+              exit 0
+            fi
+            IFS=. read -r major minor patch <<< "${last#v}"
+            if grep -qE '^[a-z]+(\([^)]*\))?!:|^BREAKING CHANGE' <<< "$log"; then
+              next="v$((major + 1)).0.0"
+            elif grep -qE '^feat(\([^)]*\))?:' <<< "$log"; then
+              next="v$major.$((minor + 1)).0"
+            else
+              next="v$major.$minor.$((patch + 1))"
+            fi
+          fi
+          git tag "$next"
+          git push origin "$next"
+          gh release create "$next" --generate-notes --title "$next"
